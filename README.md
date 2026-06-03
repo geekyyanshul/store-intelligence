@@ -1,33 +1,81 @@
-# store-intelligence
+# Store Intelligence API — Apex Retail
 
-Project Title
-Store Intelligence: Real-Time Retail Analytics Pipeline
+A containerised Store Intelligence system that processes CCTV footage to emit structured behavioural events and expose real-time analytics via a REST API.
 
-Tagline
-A containerised end-to-end computer vision and analytics pipeline that turns raw CCTV footage into actionable retail insights.
+## Quick Start
 
-Project Description
-🌟 The Problem
-Physical retail spaces often lack the granular analytics available to e-commerce platforms. Store managers need to know not just how many people entered, but how they moved through the store, where they lingered, and why they abandoned queues.
+```bash
+git clone <repo-url>
+cd store-intelligence
+docker compose up --build
+```
 
-💡 Our Solution
-The Store Intelligence system solves this by analyzing raw CCTV footage using a robust object detection pipeline, extracting behavioural data, and powering a real-time analytics backend. The platform provides insights into:
+The API will be available at **http://localhost:8000**
+Interactive docs: **http://localhost:8000/docs**
 
-The "North Star" Conversion Rate (calculated via entry vs. billing queue visitors)
-Funnel Drop-offs (Entry ➔ Zone Exploration ➔ Billing Queue)
-Anomaly Detection (Queue spikes, Dead zones, and Conversion rate drops)
-Average Dwell Times per store zone
-🏗 Architecture & Workflow
-Our system is split into two primary decoupled components:
+## Running the Detection Pipeline
 
-The Detection Pipeline (Offline/Edge): Uses YOLOv8 nano and ByteTrack to process video frames. It handles staff exclusion and zone mapping, then converts this raw tracking data into structured JSON events. These events are grouped into batches and emitted to the backend.
-The Analytics API (Backend): A high-performance FastAPI service backed by an asynchronous PostgreSQL database. It exposes idempotent ingestion endpoints (ON CONFLICT DO NOTHING) and runs complex SQL aggregations on the fly to calculate metrics without needing a heavy OLAP database. Both components are containerised using Docker Compose.
-🛠 Tech Stack
-Computer Vision: Python, OpenCV, YOLOv8 (Ultralytics), ByteTrack
-Backend API: Python, FastAPI, Pydantic, Uvicorn
-Database: PostgreSQL 15, SQLAlchemy 2.0 (Asyncpg)
-Orchestration: Docker, Docker Compose
-🚀 Key Design Decisions
-YOLOv8 Nano: Chosen for its real-time processing capabilities on CPU, allowing the pipeline to run efficiently without requiring expensive GPU infrastructure.
-PostgreSQL over NoSQL: We opted for a relational database with strict constraints to ensure absolute data integrity for analytical queries, enforcing idempotency at the database level.
-Decoupled Architecture: By separating the heavy computer vision processing script from the lightweight API, we ensured the web server remains highly available and doesn't crash during intensive video processing.
+### Prerequisites
+```bash
+cd store-intelligence
+python3 -m venv venv && source venv/bin/activate
+pip install -r requirements.txt
+```
+
+### Process a CCTV clip
+```bash
+# Process a single clip and emit events to the running API
+bash pipeline/run.sh --clip data/clip1.mp4 --store STORE_BLR_002 --api http://localhost:8000
+
+# Process all clips in a directory
+bash pipeline/run.sh --dir data/ --store STORE_BLR_002 --api http://localhost:8000
+```
+
+Events are:
+- Printed to stdout as JSON (one per line)
+- POSTed to `POST /events/ingest` on the running API
+- Also saved to `pipeline/output/events.jsonl`
+
+## API Endpoints
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/health` | Service health + stale feed warnings |
+| POST | `/events/ingest` | Ingest batch of up to 500 events |
+| GET | `/stores/{id}/metrics` | Unique visitors, conversion rate, dwell, queue |
+| GET | `/stores/{id}/funnel` | Session-based conversion funnel |
+| GET | `/stores/{id}/heatmap` | Zone visit frequency + avg dwell |
+| GET | `/stores/{id}/anomalies` | Active anomaly detection |
+
+## Architecture
+
+```
+CCTV Clips → pipeline/detect.py (YOLOv8 + ByteTrack) → pipeline/emit.py → POST /events/ingest
+                                                                                    ↓
+                                                                             PostgreSQL DB
+                                                                                    ↓
+                                              GET /metrics, /funnel, /heatmap, /anomalies
+```
+
+## Running Tests
+
+```bash
+source venv/bin/activate
+pytest tests/ -v --tb=short
+```
+
+## Tech Stack
+
+- **API**: FastAPI + Uvicorn
+- **Database**: PostgreSQL 15 (via SQLAlchemy + asyncpg)
+- **Detection**: YOLOv8 (Ultralytics) + ByteTrack
+- **Infrastructure**: Docker + Docker Compose
+
+## Live Dashboard (Bonus)
+
+If running the dashboard:
+```bash
+source venv/bin/activate
+python dashboard/app.py
+```
+Dashboard available at **http://localhost:8501**
